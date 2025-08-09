@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nertz Score Tracker</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div id="app">
+        <!-- Header -->
+        <header class="header">
+            <h1><i class="fas fa-cards-blank"></i> Score Tracker</h1>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Game Setup Screen -->
+            <div id="gameSetup" class="screen active">
+                <div class="setup-container">
+                    <h2>Start New Game</h2>
+                    
+                    <div class="winning-score-section">
+                        <label for="winningScore">Playing to:</label>
+                        <input type="number" id="winningScore" value="100" min="50" max="500" step="10">
+                    </div>
+
+                    <div class="players-section">
+                        <h3>Players</h3>
+                        <div id="playersList" class="players-list"></div>
+                        
+                        <button id="addPlayerBtn" class="btn btn-primary">
+                            <i class="fas fa-plus"></i> Add Player
+                        </button>
+                    </div>
+
+                    <button id="startGameBtn" class="btn btn-success btn-large" disabled>
+                        <i class="fas fa-play"></i> Start Game
+                    </button>
+                </div>
+            </div>
+
+            <!-- Game Screen -->
+            <div id="gameScreen" class="screen">
+                <div class="game-header">
+                    <h2>Round <span id="currentRound">1</span></h2>
+                    <div class="winning-score-display">
+                        Winning Score: <span id="displayWinningScore">100</span>
+                    </div>
+                </div>
+
+                <div class="scores-section">
+                    <div id="scoresContainer" class="scores-container"></div>
+                    
+                    <div class="round-actions">
+                        <button id="saveRoundBtn" class="btn btn-primary btn-large">
+                            <i class="fas fa-save"></i> Save Round
+                        </button>
+                        <button id="nextRoundBtn" class="btn btn-success btn-large" style="display: none;">
+                            <i class="fas fa-forward"></i> Next Round
+                        </button>
+                    </div>
+                </div>
+
+                <div class="game-actions">
+                    <button id="viewStatsBtn" class="btn btn-secondary">
+                        <i class="fas fa-chart-line"></i> View Stats
+                    </button>
+                    <button id="newGameBtn" class="btn btn-warning">
+                        <i class="fas fa-plus"></i> New Game
+                    </button>
+                </div>
+                
+                <div class="navigation-hint">
+                    <small>💡 Tip: Use Enter/Tab to move between players, or swipe up/down on mobile</small>
+                </div>
+            </div>
+
+            <!-- Stats Screen -->
+            <div id="statsScreen" class="screen">
+                <div class="stats-header">
+                    <h2>Game Statistics</h2>
+                    <button id="backToGameBtn" class="btn btn-secondary" style="display: none;">
+                        <i class="fas fa-arrow-left"></i> Back to Game
+                    </button>
+                    <button id="nextRoundFromStatsBtn" class="btn btn-success" style="display: none;">
+                        <i class="fas fa-forward"></i> Next Round
+                    </button>
+                </div>
+
+                <div class="stats-content">
+                    <div class="cumulative-scores">
+                        <h3 id="cumulativeScoresHeader">Leaderboard</h3>
+                        <div id="cumulativeScores" class="cumulative-scores-grid"></div>
+                    </div>
+
+                    <div class="score-progression">
+                        <h3>Score Progression</h3>
+                        <div class="chart-container">
+                            <canvas id="scoreChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Add Player Modal -->
+    <div id="addPlayerModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Add Player</h3>
+                <button id="closeModalBtn" class="close-btn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Recent Players:</label>
+                    <div id="recentPlayers" class="recent-players"></div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="playerName">Player Name:</label>
+                    <input type="text" id="playerName" placeholder="Enter player name">
+                </div>
+                
+                <div class="form-group">
+                    <label>Choose Icon:</label>
+                    <div id="iconGrid" class="icon-grid"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="confirmAddPlayerBtn" class="btn btn-primary">Add Player</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Winner Modal -->
+    <div id="winnerModal" class="modal">
+        <div class="modal-content winner-modal">
+            <div class="modal-header">
+                <h3>🎉 Game Winner! 🎉</h3>
+            </div>
+            <div class="modal-body">
+                <div id="winnerDisplay" class="winner-display"></div>
+            </div>
+            <div class="modal-footer">
+                <button id="newGameFromWinnerBtn" class="btn btn-success">Start New Game</button>
+                <button id="viewStatsFromWinnerBtn" class="btn btn-secondary">View Stats</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Alert Modal -->
+    <div id="alertModal" class="modal">
+        <div class="modal-content alert-modal">
+            <div class="modal-header">
+                <h3 id="alertTitle">Alert</h3>
+            </div>
+            <div class="modal-body">
+                <p id="alertMessage">Message</p>
+            </div>
+            <div class="modal-footer">
+                <button id="alertOkBtn" class="btn btn-primary">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Confirm Modal -->
+    <div id="confirmModal" class="modal">
+        <div class="modal-content confirm-modal">
+            <div class="modal-header">
+                <h3 id="confirmTitle">Confirm</h3>
+            </div>
+            <div class="modal-body">
+                <p id="confirmMessage">Message</p>
+            </div>
+            <div class="modal-footer">
+                <button id="confirmCancelBtn" class="btn btn-secondary">Cancel</button>
+                <button id="confirmOkBtn" class="btn btn-primary">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html> 
