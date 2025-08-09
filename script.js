@@ -153,6 +153,7 @@ class NertzScoreTracker {
                 </div>
                 <input type="number" 
                        class="score-input" 
+                       inputmode="numeric"
                        data-player-id="${player.id}"
                        placeholder="Score"
                        min="-26" 
