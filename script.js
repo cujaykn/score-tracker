@@ -9,12 +9,13 @@ class NertzScoreTracker {
             rounds: [],
             recentPlayers: []
         };
-        
         this.selectedIcon = null;
         this.chart = null;
         this.touchStartY = null;
         this.cameFromSave = false;
-        
+        // For custom score entry modal
+        this.scoreEntryTargetInput = null;
+        this.scoreEntryValue = '';
         this.loadFromStorage();
         this.initializeApp();
         this.setupEventListeners();
@@ -151,59 +152,140 @@ class NertzScoreTracker {
                     </div>
                     <div class="player-name">${player.name}</div>
                 </div>
-                <input type="number" 
+                <input type="text" 
                        class="score-input" 
                        data-player-id="${player.id}"
                        placeholder="Score"
-                       min="-26" 
-                       max="52"
-                       step="1">
+                       inputmode="none"
+                       readonly
+                       style="background:#fff;cursor:pointer;">
                 <div class="cumulative-score">${player.totalScore}</div>
             `;
             container.appendChild(scoreGroup);
         });
 
-        // Add event listeners for score validation and navigation
+        // Add event listeners for custom score entry
         container.querySelectorAll('.score-input').forEach((input, index) => {
-            input.addEventListener('input', (e) => this.validateScore(e.target));
-            
-            // Add keyboard navigation
-            input.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter' || e.key === 'Tab') {
-                    e.preventDefault();
-                    this.navigateToNextInput(index);
-                } else if (e.key === 'ArrowUp') {
-                    e.preventDefault();
-                    this.navigateToPreviousInput(index);
-                } else if (e.key === 'ArrowDown') {
-                    e.preventDefault();
-                    this.navigateToNextInput(index);
-                }
-            });
-            
-            // Add touch navigation (swipe gestures)
-            input.addEventListener('touchstart', (e) => {
-                this.touchStartY = e.touches[0].clientY;
-            });
-            
-            input.addEventListener('touchend', (e) => {
-                if (this.touchStartY) {
-                    const touchEndY = e.changedTouches[0].clientY;
-                    const diff = this.touchStartY - touchEndY;
-                    
-                    if (Math.abs(diff) > 50) { // Minimum swipe distance
-                        if (diff > 0) {
-                            // Swipe up - next input
-                            this.navigateToNextInput(index);
-                        } else {
-                            // Swipe down - previous input
-                            this.navigateToPreviousInput(index);
-                        }
-                    }
-                    this.touchStartY = null;
-                }
-            });
+            input.addEventListener('click', (e) => this.showScoreEntryModal(e.target));
         });
+    }
+
+    // --- Custom Score Entry Modal Logic ---
+    showScoreEntryModal(input) {
+        this.scoreEntryTargetInput = input;
+        this.scoreEntryValue = input.value || '';
+        this.updateScoreEntryDisplay();
+
+        // Set player name in modal header
+        let playerName = '';
+        const playerId = input.getAttribute('data-player-id');
+        if (playerId && this.gameState.players) {
+            const player = this.gameState.players.find(p => String(p.id) === String(playerId));
+            if (player) playerName = player.name;
+        }
+        const header = document.querySelector('#scoreEntryModal .modal-header h3');
+        if (header) {
+            header.textContent = playerName ? `Enter Score for ${playerName}` : 'Enter Score';
+        }
+
+        // Render keypad
+        const keypad = document.getElementById('scoreEntryKeypad');
+        keypad.innerHTML = '';
+        const keys = [
+            '7','8','9',
+            '4','5','6',
+            '1','2','3',
+            '+/-','0','⌫'
+        ];
+        keys.forEach(key => {
+            const btn = document.createElement('button');
+            btn.textContent = key;
+            btn.type = 'button';
+            btn.addEventListener('click', () => this.handleScoreEntryKey(key));
+            keypad.appendChild(btn);
+        });
+
+        document.getElementById('scoreEntryModal').classList.add('active');
+    }
+
+    handleScoreEntryNext() {
+        // Save current score
+        let val = this.scoreEntryValue;
+        if (val === '' || val === '-') val = '0';
+        let num = parseInt(val, 10);
+        if (isNaN(num)) num = 0;
+        if (num < -26) num = -26;
+        if (num > 52) num = 52;
+        if (this.scoreEntryTargetInput) {
+            this.scoreEntryTargetInput.value = num;
+            this.validateScore(this.scoreEntryTargetInput);
+        }
+
+        // Find next input that is empty or not valid
+        const inputs = Array.from(document.querySelectorAll('.score-input'));
+        let currentIdx = inputs.indexOf(this.scoreEntryTargetInput);
+        let found = false;
+        for (let i = 1; i <= inputs.length; i++) {
+            const nextIdx = (currentIdx + i) % inputs.length;
+            const nextInput = inputs[nextIdx];
+            if (nextInput.value === '' || nextInput.classList.contains('invalid')) {
+                this.showScoreEntryModal(nextInput);
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            this.hideScoreEntryModal();
+        }
+    }
+
+    hideScoreEntryModal() {
+        document.getElementById('scoreEntryModal').classList.remove('active');
+        this.scoreEntryTargetInput = null;
+        this.scoreEntryValue = '';
+    }
+
+    updateScoreEntryDisplay() {
+        let val = this.scoreEntryValue;
+        if (val === '') val = '0';
+        document.getElementById('scoreEntryDisplay').textContent = val;
+    }
+
+    handleScoreEntryKey(key) {
+        if (key === '⌫') {
+            this.scoreEntryValue = this.scoreEntryValue.slice(0, -1);
+        } else if (key === '+/-') {
+            // Toggle sign, even if empty or partially entered
+            if (this.scoreEntryValue.startsWith('-')) {
+                this.scoreEntryValue = this.scoreEntryValue.slice(1);
+            } else {
+                if (this.scoreEntryValue === '' || this.scoreEntryValue === '0') {
+                    this.scoreEntryValue = '-';
+                } else {
+                    this.scoreEntryValue = '-' + this.scoreEntryValue.replace('-', '');
+                }
+            }
+        } else {
+            // Only allow up to 3 chars (for -26 to 52)
+            if (this.scoreEntryValue === '0') this.scoreEntryValue = '';
+            if (this.scoreEntryValue.length < 3) {
+                this.scoreEntryValue += key;
+            }
+        }
+        this.updateScoreEntryDisplay();
+    }
+
+    confirmScoreEntry() {
+        let val = this.scoreEntryValue;
+        if (val === '' || val === '-') val = '0';
+        // Clamp to allowed range
+        let num = parseInt(val, 10);
+        if (isNaN(num)) num = 0;
+        if (num < -26) num = -26;
+        if (num > 52) num = 52;
+        this.scoreEntryTargetInput.value = num;
+        this.validateScore(this.scoreEntryTargetInput);
+        this.hideScoreEntryModal();
     }
 
     validateScore(input) {
@@ -692,6 +774,11 @@ class NertzScoreTracker {
             document.getElementById('winnerModal').classList.remove('active');
             this.showStats();
         });
+
+        // Score Entry Modal events
+    document.getElementById('closeScoreEntryBtn').addEventListener('click', () => this.hideScoreEntryModal());
+    document.getElementById('scoreEntryNextBtn').addEventListener('click', () => this.handleScoreEntryNext());
+    document.getElementById('scoreEntryOkBtn').addEventListener('click', () => this.confirmScoreEntry());
 
         // Close modals when clicking outside
         document.querySelectorAll('.modal').forEach(modal => {

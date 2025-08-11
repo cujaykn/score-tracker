@@ -183,6 +183,25 @@
         </div>
     </div>
 
+
+    <!-- Score Entry Modal -->
+    <div id="scoreEntryModal" class="modal">
+        <div class="modal-content" style="max-width:320px;text-align:center;">
+            <div class="modal-header">
+                <h3>Enter Score</h3>
+                <button id="closeScoreEntryBtn" class="close-btn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="scoreEntryDisplay" style="font-size:2rem;margin-bottom:1rem;">0</div>
+                <div id="scoreEntryKeypad" style="display:grid;grid-template-columns:repeat(3,1fr);gap:0.5rem;"></div>
+            </div>
+            <div class="modal-footer" style="gap:0.5rem;">
+                <button id="scoreEntryNextBtn" class="btn btn-secondary">Next</button>
+                <button id="scoreEntryOkBtn" class="btn btn-primary">OK</button>
+            </div>
+        </div>
+    </div>
+
     <script src="script.js"></script>
 </body>
-</html> 
+</html>
