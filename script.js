@@ -1,80 +1,497 @@
+// --- Game Logic Base and Implementations ---
+class GameLogic {
+    constructor(app) {
+        this.app = app;
+    }
+    // Methods to override:
+    getInitialPlayerData(player) { return { ...player }; }
+    getRoundInputFields(player) { return []; }
+    processRoundInput(player, input) {}
+    getWinner(players, gameState) { return null; }
+    renderChart(ctx, gameState) {}
+}
+
+class NertzLogic extends GameLogic {
+    getInitialPlayerData(player) {
+        // Only totalScore for Nertz
+        return { ...player, totalScore: 0 };
+    }
+    getRoundInputFields(player) {
+        return [
+            { type: 'score', label: 'Score', min: -26, max: 52 }
+        ];
+    }
+    processRoundInput(player, input) {
+        // input: { score: number }
+        player.totalScore += input.score;
+    }
+    getWinner(players, gameState) {
+        return players.find(p => p.totalScore >= gameState.winningScore);
+    }
+    renderChart(ctx, gameState) {
+        // Nertz: line chart of cumulative score per round
+        if (this.app.chart) {
+            this.app.chart.destroy();
+        }
+        const labels = gameState.rounds.map(round => `Round ${round.roundNumber}`);
+        const datasets = gameState.players.map(player => {
+            let cumulativeScore = 0;
+            const data = gameState.rounds.map(round => {
+                const scoreData = (round.data || round.scores || []).find(s => s.playerId === player.id);
+                if (scoreData && (scoreData.input ? scoreData.input.score !== undefined : scoreData.score !== undefined)) {
+                    cumulativeScore += scoreData.input ? scoreData.input.score : scoreData.score;
+                }
+                return cumulativeScore;
+            });
+            return {
+                label: player.name,
+                data: data,
+                borderColor: this.app.getPlayerColor(player.id),
+                backgroundColor: this.app.getPlayerColor(player.id, 0.1),
+                borderWidth: 3,
+                fill: false,
+                tension: 0.1
+            };
+        });
+        this.app.chart = new Chart(ctx, {
+            type: 'line',
+            data: { labels, datasets },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: 'top' },
+                    title: { display: true, text: 'Score Progression by Round' }
+                },
+                scales: {
+                    y: { beginAtZero: false, title: { display: true, text: 'Score' } },
+                    x: { title: { display: true, text: 'Round' } }
+                }
+            }
+        });
+    }
+}
+
+class Phase10Logic extends GameLogic {
+    getInitialPlayerData(player) {
+        // Phase 10: phase (1-10), totalScore
+        return { ...player, phase: 1, totalScore: 0 };
+    }
+    getRoundInputFields(player) {
+        return [
+            { type: 'checkbox', label: `Completed Phase ${player.phase}` },
+            { type: 'score', label: 'Score', min: 0, max: 500 }
+        ];
+    }
+    processRoundInput(player, input) {
+        // input: { completedPhase: bool, score: number }
+        if (input.completedPhase) player.phase = (player.phase || 1) + 1;
+        player.totalScore += input.score;
+    }
+    getWinner(players, gameState) {
+        // Winner: first to phase 11 (completed 10), lowest score breaks tie
+        const finished = players.filter(p => p.phase > 10);
+        if (finished.length === 0) return null;
+        return finished.reduce((min, p) => p.totalScore < min.totalScore ? p : min, finished[0]);
+    }
+    renderChart(ctx, gameState) {
+        // Phase 10: line chart of phase progress per player, tooltip shows score for each round
+        if (this.app.chart) {
+            this.app.chart.destroy();
+        }
+        const labels = gameState.rounds.map(round => `Round ${round.roundNumber}`);
+        const datasets = gameState.players.map(player => {
+            let phase = 1;
+            const data = gameState.rounds.map(round => {
+                const pdata = (round.data || []).find(s => s.playerId === player.id);
+                if (pdata && pdata.input && pdata.input.completedPhase) phase += 1;
+                return phase;
+            });
+            // For tooltips: collect score for each round
+            const scores = gameState.rounds.map(round => {
+                const pdata = (round.data || []).find(s => s.playerId === player.id);
+                return pdata && pdata.input && typeof pdata.input.score === 'number' ? pdata.input.score : 0;
+            });
+            return {
+                label: player.name,
+                data: data,
+                borderColor: this.app.getPlayerColor(player.id),
+                backgroundColor: this.app.getPlayerColor(player.id, 0.1),
+                borderWidth: 3,
+                fill: false,
+                tension: 0.1,
+                scores: scores
+            };
+        });
+        this.app.chart = new Chart(ctx, {
+            type: 'line',
+            data: { labels, datasets },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: 'top' },
+                    title: { display: true, text: 'Phase Progression by Round' },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                const phase = context.parsed.y;
+                                const score = context.dataset.scores[context.dataIndex];
+                                return `${context.dataset.label}: Phase ${phase} (Score: ${score})`;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    y: { beginAtZero: true, min: 1, max: 11, stepSize: 1, title: { display: true, text: 'Phase' } },
+                    x: { title: { display: true, text: 'Round' } }
+                }
+            }
+        });
+    }
+}
 // Game State Management
-class NertzScoreTracker {
+class GameScoreTracker {
+    renderScoreInputs() {
+        const container = document.getElementById('scoresContainer');
+        if (!container) return;
+        container.innerHTML = '';
+        const logic = this.gameLogics[this.gameState.selectedGame] || this.gameLogics['nertz'];
+        this.gameState.players.forEach(player => {
+            const group = document.createElement('div');
+            group.className = this.gameState.selectedGame === 'phase10' ? 'score-input-group phase10-row' : 'score-input-group';
+            // Player info
+            const info = document.createElement('div');
+            info.className = 'score-player-info';
+            info.innerHTML = `<span class="player-icon"><i class="${player.icon}"></i></span> <span class="player-name">${player.name}</span>`;
+            group.appendChild(info);
+
+            // Game-specific input fields
+            const fields = logic.getRoundInputFields(player);
+            fields.forEach(field => {
+                if (field.type === 'checkbox') {
+                    const label = document.createElement('label');
+                    label.style.display = 'flex';
+                    label.style.alignItems = 'center';
+                    label.style.gap = '0.3rem';
+                    const checkbox = document.createElement('input');
+                    checkbox.type = 'checkbox';
+                    checkbox.className = 'phase-complete-checkbox';
+                    checkbox.setAttribute('data-player-id', player.id);
+                    label.appendChild(checkbox);
+                    label.appendChild(document.createTextNode(field.label));
+                    group.appendChild(label);
+                } else if (field.type === 'score') {
+                    const input = document.createElement('input');
+                    input.type = 'text';
+                    input.className = 'score-input';
+                    input.setAttribute('data-player-id', player.id);
+                    input.value = '';
+                    input.placeholder = 'Score';
+                    input.readOnly = true;
+                    input.addEventListener('click', () => {
+                        this._scoreEntryInput = input;
+                        this._scoreEntryMin = field.min;
+                        this._scoreEntryMax = field.max;
+                        document.getElementById('scoreEntryDisplay').textContent = input.value || '0';
+                        document.getElementById('scoreEntryModal').classList.add('active');
+                        this.renderScoreKeypad();
+                    });
+                    group.appendChild(input);
+                }
+            });
+            container.appendChild(group);
+        });
+    }
+    saveRound() {
+        // Only Nertz for now
+        const logic = this.gameLogics?.[this.gameState.selectedGame] || this.gameLogics?.nertz;
+        const roundData = [];
+        let allFilled = true;
+        this.gameState.players.forEach(player => {
+            const inputEl = document.querySelector(`.score-input[data-player-id='${player.id}']`);
+            let val = inputEl ? Number(inputEl.value) : 0;
+            if (inputEl && inputEl.value === '') allFilled = false;
+            let inputObj = { score: val };
+            if (this.gameState.selectedGame === 'phase10') {
+                const checkbox = document.querySelector(`.phase-complete-checkbox[data-player-id='${player.id}']`);
+                inputObj.completedPhase = checkbox && checkbox.checked;
+            }
+            roundData.push({ playerId: player.id, input: inputObj });
+        });
+        if (!allFilled) {
+            this.showAlert('Missing Score', 'Please enter a score for each player.');
+            return;
+        }
+        // Update player scores
+        roundData.forEach(data => {
+            const player = this.gameState.players.find(p => p.id === data.playerId);
+            logic.processRoundInput(player, data.input);
+        });
+        // Save round
+        this.gameState.rounds.push({ roundNumber: this.gameState.currentRound, data: roundData });
+        this.gameState.currentRound += 1;
+        this.saveToStorage();
+        // Show stats/leaderboard after saving round
+        this.showStatsScreenAfterRound();
+    }
+
+    showStatsScreenAfterRound() {
+        this.showScreen('statsScreen');
+        this.renderScoreChart();
+        // Show only Next Round button if game is active, hide Back to Game
+        const nextBtn = document.getElementById('nextRoundFromStatsBtn');
+        if (nextBtn) {
+            nextBtn.style.display = this.gameState.isActive ? '' : 'none';
+            nextBtn.onclick = () => {
+                this.showScreen('gameScreen');
+                this.renderScoreInputs();
+                const roundEl = document.getElementById('currentRound');
+                if (roundEl) roundEl.textContent = this.gameState.currentRound;
+            };
+        }
+        const backBtn = document.getElementById('backToGameBtn');
+        if (backBtn) backBtn.style.display = 'none';
+        // Render leaderboard
+        this.renderLeaderboard();
+    }
+
+    renderLeaderboard() {
+        const container = document.getElementById('cumulativeScores');
+        if (!container) return;
+        let sorted;
+        if (this.gameState.selectedGame === 'phase10') {
+            // Sort by phase DESC, then totalScore ASC
+            sorted = [...this.gameState.players].sort((a, b) => {
+                if ((b.phase || 1) !== (a.phase || 1)) return (b.phase || 1) - (a.phase || 1);
+                return (a.totalScore || 0) - (b.totalScore || 0);
+            });
+        } else {
+            // Nertz: highest totalScore first
+            sorted = [...this.gameState.players].sort((a, b) => b.totalScore - a.totalScore);
+        }
+        container.innerHTML = '';
+        sorted.forEach(player => {
+            const card = document.createElement('div');
+            card.className = 'leaderboard-card';
+            let phaseLine = '';
+            if (this.gameState.selectedGame === 'phase10') {
+                phaseLine = `<div class="leaderboard-phase" style="font-size:0.95rem;font-weight:400;opacity:0.85;line-height:1.1;">Phase ${player.phase || 1}</div>`;
+            }
+            card.innerHTML = `
+                <div class="leaderboard-icon"><i class="${player.icon}"></i></div>
+                <div class="leaderboard-name">${player.name}${phaseLine}</div>
+                <div class="leaderboard-score">${player.totalScore}</div>
+            `;
+            container.appendChild(card);
+        });
+    }
+    renderChart(ctx, gameState) {
+        // Phase 10: line chart of phase progress per player, tooltip shows score for each round
+        if (this.app.chart) {
+            this.app.chart.destroy();
+        }
+        const labels = gameState.rounds.map(round => `Round ${round.roundNumber}`);
+        const datasets = gameState.players.map(player => {
+            let phase = 1;
+            const data = gameState.rounds.map(round => {
+                const pdata = (round.data || []).find(s => s.playerId === player.id);
+                if (pdata && pdata.input && pdata.input.completedPhase) phase += 1;
+                return phase;
+            });
+            // For tooltips: collect score for each round
+            const scores = gameState.rounds.map(round => {
+                const pdata = (round.data || []).find(s => s.playerId === player.id);
+                return pdata && pdata.input && typeof pdata.input.score === 'number' ? pdata.input.score : 0;
+            });
+            return {
+                label: player.name,
+                data: data,
+                borderColor: this.app.getPlayerColor(player.id),
+                backgroundColor: this.app.getPlayerColor(player.id, 0.1),
+                borderWidth: 3,
+                fill: false,
+                tension: 0.1,
+                scores: scores
+            };
+        });
+        this.app.chart = new Chart(ctx, {
+            type: 'line',
+            data: { labels, datasets },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: 'top' },
+                    title: { display: true, text: 'Phase Progression by Round' },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                const phase = context.parsed.y;
+                                const score = context.dataset.scores[context.dataIndex];
+                                return `${context.dataset.label}: Phase ${phase} (Score: ${score})`;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    y: { beginAtZero: true, min: 1, max: 10, stepSize: 1, title: { display: true, text: 'Phase' } },
+                    x: { title: { display: true, text: 'Round' } }
+                }
+            }
+        });
+    }
+
+    renderScoreKeypad() {
+        const keypad = document.getElementById('scoreEntryKeypad');
+        keypad.innerHTML = '';
+        const keys = ['1','2','3','4','5','6','7','8','9','0','-','C'];
+        keys.forEach(key => {
+            const btn = document.createElement('button');
+            btn.textContent = key;
+            btn.className = 'keypad-btn';
+            btn.addEventListener('click', () => {
+                let current = document.getElementById('scoreEntryDisplay').textContent;
+                if (key === 'C') {
+                    current = '';
+                } else if (key === '-') {
+                    if (!current.startsWith('-')) current = '-' + current;
+                } else {
+                    if (current === '0') current = '';
+                    current += key;
+                }
+                document.getElementById('scoreEntryDisplay').textContent = current;
+            });
+            keypad.appendChild(btn);
+        });
+        // OK and Next handled by modal footer
+        document.getElementById('scoreEntryOkBtn').onclick = () => {
+            let val = document.getElementById('scoreEntryDisplay').textContent;
+            if (val === '' || isNaN(Number(val))) val = '0';
+            let num = Number(val);
+            if (this._scoreEntryMin !== undefined && num < this._scoreEntryMin) num = this._scoreEntryMin;
+            if (this._scoreEntryMax !== undefined && num > this._scoreEntryMax) num = this._scoreEntryMax;
+            this._scoreEntryInput.value = num;
+            document.getElementById('scoreEntryModal').classList.remove('active');
+        };
+        document.getElementById('scoreEntryNextBtn').onclick = () => {
+            document.getElementById('scoreEntryOkBtn').onclick();
+            // Focus next input
+            const inputs = Array.from(document.querySelectorAll('.score-input'));
+            const idx = inputs.indexOf(this._scoreEntryInput);
+            if (idx >= 0 && idx < inputs.length - 1) {
+                inputs[idx + 1].click();
+            }
+        };
+        document.getElementById('closeScoreEntryBtn').onclick = () => {
+            document.getElementById('scoreEntryModal').classList.remove('active');
+        };
+    }
+
+    showScreen(screenId) {
+        // Hide all screens
+        document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+        // Show the requested screen
+        const screen = document.getElementById(screenId);
+        if (screen) screen.classList.add('active');
+        // Hide or show Winning Score label based on game
+        if (screenId === 'gameScreen') {
+            const ws = document.querySelector('.winning-score-display');
+            if (ws) {
+                ws.style.display = (this.gameState.selectedGame === 'phase10') ? 'none' : '';
+            }
+        }
+    }
+
+    startGame() {
+        // Mark game as active, reset rounds, set round to 1
+        this.gameState.isActive = true;
+        this.gameState.currentRound = 1;
+        this.gameState.rounds = [];
+        // Optionally reset per-player data for the selected game
+        // (e.g., totalScore, phase, etc.)
+        const logic = this.gameLogics?.[this.gameState.selectedGame] || this.gameLogics?.nertz;
+        if (logic && typeof logic.getInitialPlayerData === 'function') {
+            this.gameState.players = this.gameState.players.map(p => logic.getInitialPlayerData({ ...p }));
+        }
+    this.saveToStorage();
+    this.showScreen('gameScreen');
+    this.renderScoreInputs();
+    // Reset round display
+    const roundEl = document.getElementById('currentRound');
+    if (roundEl) roundEl.textContent = '1';
+    }
+
+    updateStartGameButton() {
+        const btn = document.getElementById('startGameBtn');
+        if (!btn) return;
+        // Enable if at least 2 players
+        btn.disabled = this.gameState.players.length < 2;
+    }
+
+    renderPlayersList() {
+        const list = document.getElementById('playersList');
+        if (!list) return;
+        list.innerHTML = '';
+        this.gameState.players.forEach(player => {
+            const item = document.createElement('div');
+            item.className = 'player-item';
+            item.innerHTML = `
+                <div class="player-icon"><i class="${player.icon}"></i></div>
+                <span class="player-name">${player.name}</span>
+            `;
+            list.appendChild(item);
+        });
+    }
+
+    saveToStorage() {
+        try {
+            localStorage.setItem('nertzGameState', JSON.stringify(this.gameState));
+        } catch (e) {
+            console.error('Failed to save game state:', e);
+        }
+    }
     constructor() {
+        // Load recentPlayers from localStorage if available
+        let recentPlayers = [];
+        try {
+            const stored = localStorage.getItem('nertzGameState');
+            if (stored) {
+                const parsed = JSON.parse(stored);
+                if (parsed && Array.isArray(parsed.recentPlayers)) {
+                    recentPlayers = parsed.recentPlayers;
+                }
+            }
+        } catch (e) {}
         this.gameState = {
             isActive: false,
             winningScore: 100,
             currentRound: 1,
             players: [],
             rounds: [],
-            recentPlayers: []
+            recentPlayers: recentPlayers,
+            selectedGame: 'nertz', // default
         };
-        this.selectedIcon = null;
-        this.chart = null;
-        this.touchStartY = null;
-        this.cameFromSave = false;
-        // For custom score entry modal
-        this.scoreEntryTargetInput = null;
-        this.scoreEntryValue = '';
-        this.loadFromStorage();
-        this.initializeApp();
-        this.setupEventListeners();
+        // Initialize per-game logic
+        this.gameLogics = {
+            nertz: new NertzLogic(this),
+            phase10: new Phase10Logic(this)
+        };
     }
 
-    initializeApp() {
-        this.updateWinningScoreDisplay();
-        this.renderPlayersList();
-        this.updateStartGameButton();
-        
-        // Check if there's an active game and restore the appropriate screen
-        if (this.gameState.isActive && this.gameState.players.length > 0) {
-            // Restore the game screen
-            this.showScreen('gameScreen');
-            this.renderScoreInputs();
-            this.updateGameDisplay();
-            this.updateCumulativeScores();
-        } else {
-            // Show the setup screen
-            this.showScreen('gameSetup');
-        }
+    renderScoreChart() {
+        const ctx = document.getElementById('scoreChart').getContext('2d');
+        const logic = this.gameLogics[this.gameState.selectedGame] || this.gameLogics['nertz'];
+        logic.renderChart(ctx, this.gameState);
     }
 
-    // Storage Management
-    saveToStorage() {
-        localStorage.setItem('nertzGameState', JSON.stringify(this.gameState));
-    }
-
-    loadFromStorage() {
-        const saved = localStorage.getItem('nertzGameState');
-        if (saved) {
-            this.gameState = { ...this.gameState, ...JSON.parse(saved) };
-        }
-    }
-
-    // Screen Management
-    showScreen(screenId) {
-        document.querySelectorAll('.screen').forEach(screen => {
-            screen.classList.remove('active');
-        });
-        document.getElementById(screenId).classList.add('active');
-    }
-
-    // Player Management
     addPlayer(name, icon) {
-        if (this.gameState.players.length >= 12) {
-            this.showAlert('Player Limit', 'Maximum 12 players allowed');
-            return;
-        }
-
         const player = {
-            id: Date.now() + Math.random(),
-            name: name,
-            icon: icon,
-            totalScore: 0
+            id: crypto.randomUUID(),
+            name,
+            icon
         };
-
         this.gameState.players.push(player);
-        
         // Add to recent players if not already there
         const existingRecent = this.gameState.recentPlayers.find(p => 
             p.name === name && p.icon === icon
@@ -83,472 +500,9 @@ class NertzScoreTracker {
             this.gameState.recentPlayers.unshift({ name, icon });
             this.gameState.recentPlayers = this.gameState.recentPlayers.slice(0, 10); // Keep only 10 most recent
         }
-
         this.saveToStorage();
         this.renderPlayersList();
         this.updateStartGameButton();
-    }
-
-    removePlayer(playerId) {
-        this.gameState.players = this.gameState.players.filter(p => p.id !== playerId);
-        this.saveToStorage();
-        this.renderPlayersList();
-        this.updateStartGameButton();
-    }
-
-    renderPlayersList() {
-        const playersList = document.getElementById('playersList');
-        playersList.innerHTML = '';
-
-        this.gameState.players.forEach(player => {
-            const playerItem = document.createElement('div');
-            playerItem.className = 'player-item';
-            playerItem.innerHTML = `
-                <div class="player-icon">
-                    <i class="${player.icon}"></i>
-                </div>
-                <div class="player-name">${player.name}</div>
-                <button class="remove-player" onclick="app.removePlayer(${player.id})">
-                    <i class="fas fa-times"></i>
-                </button>
-            `;
-            playersList.appendChild(playerItem);
-        });
-    }
-
-    updateStartGameButton() {
-        const startBtn = document.getElementById('startGameBtn');
-        startBtn.disabled = this.gameState.players.length < 2;
-    }
-
-    // Game Management
-    startGame() {
-        this.gameState.isActive = true;
-        this.gameState.currentRound = 1;
-        this.gameState.rounds = [];
-        
-        // Reset player scores
-        this.gameState.players.forEach(player => {
-            player.totalScore = 0;
-        });
-
-        this.saveToStorage();
-        this.showScreen('gameScreen');
-        this.renderScoreInputs();
-        this.updateGameDisplay();
-    }
-
-    renderScoreInputs() {
-        const container = document.getElementById('scoresContainer');
-        container.innerHTML = '';
-
-        this.gameState.players.forEach(player => {
-            const scoreGroup = document.createElement('div');
-            scoreGroup.className = 'score-input-group';
-            scoreGroup.innerHTML = `
-                <div class="score-player-info">
-                    <div class="player-icon">
-                        <i class="${player.icon}"></i>
-                    </div>
-                    <div class="player-name">${player.name}</div>
-                </div>
-                <input type="text" 
-                       class="score-input" 
-                       data-player-id="${player.id}"
-                       placeholder="Score"
-                       inputmode="none"
-                       readonly
-                       style="background:#fff;cursor:pointer;">
-                <div class="cumulative-score">${player.totalScore}</div>
-            `;
-            container.appendChild(scoreGroup);
-        });
-
-        // Add event listeners for custom score entry
-        container.querySelectorAll('.score-input').forEach((input, index) => {
-            input.addEventListener('click', (e) => this.showScoreEntryModal(e.target));
-        });
-    }
-
-    // --- Custom Score Entry Modal Logic ---
-    showScoreEntryModal(input) {
-        this.scoreEntryTargetInput = input;
-        this.scoreEntryValue = input.value || '';
-        this.updateScoreEntryDisplay();
-
-        // Set player name in modal header
-        let playerName = '';
-        const playerId = input.getAttribute('data-player-id');
-        if (playerId && this.gameState.players) {
-            const player = this.gameState.players.find(p => String(p.id) === String(playerId));
-            if (player) playerName = player.name;
-        }
-        const header = document.querySelector('#scoreEntryModal .modal-header h3');
-        if (header) {
-            header.textContent = playerName ? `Enter Score for ${playerName}` : 'Enter Score';
-        }
-
-        // Render keypad
-        const keypad = document.getElementById('scoreEntryKeypad');
-        keypad.innerHTML = '';
-        const keys = [
-            '7','8','9',
-            '4','5','6',
-            '1','2','3',
-            '+/-','0','⌫'
-        ];
-        keys.forEach(key => {
-            const btn = document.createElement('button');
-            btn.textContent = key;
-            btn.type = 'button';
-            btn.addEventListener('click', () => this.handleScoreEntryKey(key));
-            keypad.appendChild(btn);
-        });
-
-        document.getElementById('scoreEntryModal').classList.add('active');
-    }
-
-    handleScoreEntryNext() {
-        // Save current score
-        let val = this.scoreEntryValue;
-        if (val === '' || val === '-') val = '0';
-        let num = parseInt(val, 10);
-        if (isNaN(num)) num = 0;
-        if (num < -26) num = -26;
-        if (num > 52) num = 52;
-        if (this.scoreEntryTargetInput) {
-            this.scoreEntryTargetInput.value = num;
-            this.validateScore(this.scoreEntryTargetInput);
-        }
-
-        // Find next input that is empty or not valid
-        const inputs = Array.from(document.querySelectorAll('.score-input'));
-        let currentIdx = inputs.indexOf(this.scoreEntryTargetInput);
-        let found = false;
-        for (let i = 1; i <= inputs.length; i++) {
-            const nextIdx = (currentIdx + i) % inputs.length;
-            const nextInput = inputs[nextIdx];
-            if (nextInput.value === '' || nextInput.classList.contains('invalid')) {
-                this.showScoreEntryModal(nextInput);
-                found = true;
-                break;
-            }
-        }
-        if (!found) {
-            this.hideScoreEntryModal();
-        }
-    }
-
-    hideScoreEntryModal() {
-        document.getElementById('scoreEntryModal').classList.remove('active');
-        this.scoreEntryTargetInput = null;
-        this.scoreEntryValue = '';
-    }
-
-    updateScoreEntryDisplay() {
-        let val = this.scoreEntryValue;
-        if (val === '') val = '0';
-        document.getElementById('scoreEntryDisplay').textContent = val;
-    }
-
-    handleScoreEntryKey(key) {
-        if (key === '⌫') {
-            this.scoreEntryValue = this.scoreEntryValue.slice(0, -1);
-        } else if (key === '+/-') {
-            // Toggle sign, even if empty or partially entered
-            if (this.scoreEntryValue.startsWith('-')) {
-                this.scoreEntryValue = this.scoreEntryValue.slice(1);
-            } else {
-                if (this.scoreEntryValue === '' || this.scoreEntryValue === '0') {
-                    this.scoreEntryValue = '-';
-                } else {
-                    this.scoreEntryValue = '-' + this.scoreEntryValue.replace('-', '');
-                }
-            }
-        } else {
-            // Only allow up to 3 chars (for -26 to 52)
-            if (this.scoreEntryValue === '0') this.scoreEntryValue = '';
-            if (this.scoreEntryValue.length < 3) {
-                this.scoreEntryValue += key;
-            }
-        }
-        this.updateScoreEntryDisplay();
-    }
-
-    confirmScoreEntry() {
-        let val = this.scoreEntryValue;
-        if (val === '' || val === '-') val = '0';
-        // Clamp to allowed range
-        let num = parseInt(val, 10);
-        if (isNaN(num)) num = 0;
-        if (num < -26) num = -26;
-        if (num > 52) num = 52;
-        this.scoreEntryTargetInput.value = num;
-        this.validateScore(this.scoreEntryTargetInput);
-        this.hideScoreEntryModal();
-    }
-
-    validateScore(input) {
-        const value = parseInt(input.value);
-        input.classList.remove('valid', 'invalid');
-        
-        if (input.value === '') return;
-        
-        if (value >= -26 && value <= 52) {
-            input.classList.add('valid');
-        } else {
-            input.classList.add('invalid');
-        }
-    }
-
-    navigateToNextInput(currentIndex) {
-        const inputs = document.querySelectorAll('.score-input');
-        const nextIndex = (currentIndex + 1) % inputs.length;
-        inputs[nextIndex].focus();
-        inputs[nextIndex].select();
-    }
-
-    navigateToPreviousInput(currentIndex) {
-        const inputs = document.querySelectorAll('.score-input');
-        const prevIndex = currentIndex === 0 ? inputs.length - 1 : currentIndex - 1;
-        inputs[prevIndex].focus();
-        inputs[prevIndex].select();
-    }
-
-    saveRound() {
-        const scoreInputs = document.querySelectorAll('.score-input');
-        const roundScores = [];
-        let allValid = true;
-
-        // First, validate all inputs
-        for (const input of scoreInputs) {
-            const playerId = parseFloat(input.dataset.playerId); // Use parseFloat for decimal IDs
-            const score = parseInt(input.value);
-            
-            if (isNaN(score) || score < -26 || score > 52) {
-                allValid = false;
-                input.classList.add('invalid');
-            } else {
-                input.classList.remove('invalid');
-                roundScores.push({
-                    playerId: playerId,
-                    score: score
-                });
-            }
-        }
-
-        if (!allValid) {
-            this.showAlert('Invalid Scores', 'Please enter valid scores for all players (-26 to 52)');
-            return;
-        }
-
-        console.log('Saving round with scores:', roundScores);
-        console.log('Current players:', this.gameState.players.map(p => ({ id: p.id, name: p.name, totalScore: p.totalScore })));
-
-        // Save round
-        this.gameState.rounds.push({
-            roundNumber: this.gameState.currentRound,
-            scores: roundScores
-        });
-
-        // Update player totals
-        roundScores.forEach(scoreData => {
-            const player = this.gameState.players.find(p => p.id === scoreData.playerId);
-            if (player) {
-                player.totalScore += scoreData.score;
-                console.log(`Updated ${player.name}: ${player.totalScore - scoreData.score} + ${scoreData.score} = ${player.totalScore}`);
-            } else {
-                console.error('Player not found for ID:', scoreData.playerId, 'Available players:', this.gameState.players.map(p => ({ id: p.id, name: p.name })));
-            }
-        });
-
-        console.log('Updated players:', this.gameState.players.map(p => ({ id: p.id, name: p.name, totalScore: p.totalScore })));
-
-        // Increment the round number for the next round immediately after saving
-        this.gameState.currentRound++;
-        
-        this.saveToStorage();
-        this.checkForWinner();
-        this.showRoundSaved();
-    }
-
-    showRoundSaved() {
-        // Set flag to indicate we came from saving a round
-        this.cameFromSave = true;
-        
-        // Go to stats page to show updated standings
-        this.showStats();
-    }
-
-    nextRound() {
-        this.cameFromSave = false; // Reset the flag
-        this.saveToStorage();
-        this.showScreen('gameScreen');
-        this.renderScoreInputs();
-        this.updateGameDisplay();
-    }
-
-    updateGameDisplay() {
-        document.getElementById('currentRound').textContent = this.gameState.currentRound;
-        document.getElementById('displayWinningScore').textContent = this.gameState.winningScore;
-    }
-
-    updateCumulativeScores() {
-        const scoreGroups = document.querySelectorAll('.score-input-group');
-        scoreGroups.forEach(group => {
-            const playerId = parseFloat(group.querySelector('.score-input').dataset.playerId);
-            const player = this.gameState.players.find(p => p.id === playerId);
-            const cumulativeScore = group.querySelector('.cumulative-score');
-            if (player) {
-                cumulativeScore.textContent = player.totalScore;
-            } else {
-                console.error('Player not found for cumulative score update:', playerId);
-            }
-        });
-    }
-
-    checkForWinner() {
-        const winner = this.gameState.players.find(player => 
-            player.totalScore >= this.gameState.winningScore
-        );
-
-        if (winner) {
-            this.showWinnerModal(winner);
-        }
-    }
-
-    showWinnerModal(winner) {
-        const modal = document.getElementById('winnerModal');
-        const display = document.getElementById('winnerDisplay');
-        
-        display.innerHTML = `
-            <div class="winner-icon">
-                <i class="${winner.icon}"></i>
-            </div>
-            <h4>${winner.name}</h4>
-            <div class="winner-score">${winner.totalScore}</div>
-        `;
-        
-        modal.classList.add('active');
-    }
-
-    // Statistics
-    showStats() {
-        this.showScreen('statsScreen');
-        this.renderCumulativeScores();
-        this.renderScoreChart();
-        
-        // Show appropriate navigation button based on context
-        const backBtn = document.getElementById('backToGameBtn');
-        const nextBtn = document.getElementById('nextRoundFromStatsBtn');
-        
-        if (this.cameFromSave) {
-            // Came from saving a round - show Next Round button
-            backBtn.style.display = 'none';
-            nextBtn.style.display = 'block';
-        } else {
-            // Came from View Stats button - show Back to Game button
-            backBtn.style.display = 'block';
-            nextBtn.style.display = 'none';
-        }
-    }
-
-    renderCumulativeScores() {
-        const container = document.getElementById('cumulativeScores');
-        const header = document.getElementById('cumulativeScoresHeader');
-        container.innerHTML = '';
-
-        // Update header with round information
-        const roundCount = this.gameState.rounds.length;
-        if (roundCount === 0) {
-            header.textContent = 'Leaderboard (No rounds played yet)';
-        } else if (roundCount === 1) {
-            header.textContent = `Leaderboard (After 1 Round)`;
-        } else {
-            header.textContent = `Leaderboard (After ${roundCount} Rounds)`;
-        }
-
-        // Sort players by score (highest first)
-        const sortedPlayers = [...this.gameState.players].sort((a, b) => b.totalScore - a.totalScore);
-
-        sortedPlayers.forEach(player => {
-            const card = document.createElement('div');
-            card.className = 'cumulative-score-card';
-            card.innerHTML = `
-                <div class="player-icon" style="margin: 0 auto 0.5rem auto;">
-                    <i class="${player.icon}"></i>
-                </div>
-                <h4>${player.name}</h4>
-                <div class="score">${player.totalScore}</div>
-            `;
-            container.appendChild(card);
-        });
-    }
-
-    renderScoreChart() {
-        const ctx = document.getElementById('scoreChart').getContext('2d');
-        
-        if (this.chart) {
-            this.chart.destroy();
-        }
-
-        const labels = this.gameState.rounds.map(round => `Round ${round.roundNumber}`);
-        const datasets = this.gameState.players.map(player => {
-            let cumulativeScore = 0;
-            const data = this.gameState.rounds.map(round => {
-                const scoreData = round.scores.find(s => s.playerId === player.id);
-                if (scoreData) {
-                    cumulativeScore += scoreData.score;
-                }
-                return cumulativeScore;
-            });
-
-            return {
-                label: player.name,
-                data: data,
-                borderColor: this.getPlayerColor(player.id),
-                backgroundColor: this.getPlayerColor(player.id, 0.1),
-                borderWidth: 3,
-                fill: false,
-                tension: 0.1
-            };
-        });
-
-        this.chart = new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: labels,
-                datasets: datasets
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: {
-                        position: 'top',
-                    },
-                    title: {
-                        display: true,
-                        text: 'Score Progression by Round'
-                    }
-                },
-                scales: {
-                    y: {
-                        beginAtZero: false,
-                        title: {
-                            display: true,
-                            text: 'Score'
-                        }
-                    },
-                    x: {
-                        title: {
-                            display: true,
-                            text: 'Round'
-                        }
-                    }
-                }
-            }
-        });
     }
 
     getPlayerColor(playerId, alpha = 1) {
@@ -566,12 +520,10 @@ class NertzScoreTracker {
             `rgba(245, 158, 11, ${alpha})`,
             `rgba(220, 38, 127, ${alpha})`
         ];
-        
         const playerIndex = this.gameState.players.findIndex(p => p.id === playerId);
         return colors[playerIndex % colors.length];
     }
 
-    // Modal Management
     showAddPlayerModal() {
         this.renderIconGrid();
         this.renderRecentPlayers();
@@ -626,16 +578,13 @@ class NertzScoreTracker {
         this.gameState.recentPlayers.forEach(player => {
             const recentPlayer = document.createElement('div');
             recentPlayer.className = 'recent-player';
-            
             // Only check if player is already added when we're in setup mode (not active game)
             const isInCurrentGame = !this.gameState.isActive && this.gameState.players.some(p => 
                 p.name.toLowerCase() === player.name.toLowerCase() && p.icon === player.icon
             );
-            
             if (isInCurrentGame) {
                 recentPlayer.classList.add('already-added');
             }
-            
             recentPlayer.innerHTML = `
                 <div class="recent-player-icon">
                     <i class="${player.icon}"></i>
@@ -643,13 +592,11 @@ class NertzScoreTracker {
                 <span>${player.name}</span>
                 ${isInCurrentGame ? '<span class="already-added-text">(Already added)</span>' : ''}
             `;
-            
             recentPlayer.addEventListener('click', () => {
-                        if (isInCurrentGame) {
-            this.showAlert('Player Exists', 'This player is already in the current game setup');
-            return;
-        }
-                
+                if (isInCurrentGame) {
+                    this.showAlert('Player Exists', 'This player is already in the current game setup');
+                    return;
+                }
                 // Automatically add the player and close the modal
                 this.addPlayer(player.name, player.icon);
                 this.hideAddPlayerModal();
@@ -660,32 +607,26 @@ class NertzScoreTracker {
 
     async confirmAddPlayer() {
         const name = document.getElementById('playerName').value.trim();
-        
         if (!name) {
             this.showAlert('Missing Information', 'Please enter a player name');
             return;
         }
-        
         if (!this.selectedIcon) {
             this.showAlert('Missing Information', 'Please select an icon');
             return;
         }
-
         // Check if player with same name and icon already exists
         const existingPlayer = this.gameState.players.find(p => 
             p.name.toLowerCase() === name.toLowerCase() && p.icon === this.selectedIcon
         );
-        
         if (existingPlayer) {
             this.showAlert('Player Exists', 'A player with this name and icon already exists in the current game');
             return;
         }
-
         // Check if player with same name exists but different icon (allow with confirmation)
         const sameNamePlayer = this.gameState.players.find(p => 
             p.name.toLowerCase() === name.toLowerCase() && p.icon !== this.selectedIcon
         );
-        
         if (sameNamePlayer) {
             const confirmAdd = await this.showConfirm(
                 'Player Name Exists', 
@@ -695,115 +636,96 @@ class NertzScoreTracker {
                 return;
             }
         }
-
         this.addPlayer(name, this.selectedIcon);
         this.hideAddPlayerModal();
     }
 
-    // Event Listeners
     setupEventListeners() {
+        // Alert OK button
+        const alertOkBtn = document.getElementById('alertOkBtn');
+        if (alertOkBtn) {
+            alertOkBtn.addEventListener('click', () => {
+                document.getElementById('alertModal').classList.remove('active');
+            });
+        }
+        document.getElementById('confirmAddPlayerBtn').addEventListener('click', () => {
+            this.confirmAddPlayer();
+        });
+        // Add Player modal close X
+        const closeModalBtn = document.getElementById('closeModalBtn');
+        if (closeModalBtn) {
+            closeModalBtn.addEventListener('click', () => {
+                this.hideAddPlayerModal();
+            });
+        }
         // Setup screen
         document.getElementById('addPlayerBtn').addEventListener('click', () => {
             this.showAddPlayerModal();
         });
-
+        // Back to Game button (stats screen)
+        const backBtn = document.getElementById('backToGameBtn');
+        if (backBtn) {
+            backBtn.addEventListener('click', () => {
+                this.showScreen('gameScreen');
+            });
+        }
+        // View Stats button (game screen)
+        document.getElementById('viewStatsBtn').addEventListener('click', () => {
+            this.showScreen('statsScreen');
+            this.renderScoreChart();
+            // Show only Back to Game, hide Next Round
+            const backBtn = document.getElementById('backToGameBtn');
+            if (backBtn) backBtn.style.display = this.gameState.isActive ? '' : 'none';
+            const nextBtn = document.getElementById('nextRoundFromStatsBtn');
+            if (nextBtn) nextBtn.style.display = 'none';
+        });
+            // New Game button (game screen)
+            document.getElementById('newGameBtn').addEventListener('click', () => {
+                this.newGame();
+            });
         document.getElementById('startGameBtn').addEventListener('click', () => {
             this.startGame();
         });
-
         document.getElementById('winningScore').addEventListener('input', (e) => {
             this.gameState.winningScore = parseInt(e.target.value);
             this.updateWinningScoreDisplay();
         });
-
-        // Game screen
+        // Game type selection
+        const gameTypeSelect = document.getElementById('gameType');
+        if (gameTypeSelect) {
+            gameTypeSelect.addEventListener('change', (e) => {
+                this.gameState.selectedGame = e.target.value;
+                this.saveToStorage();
+                this.updateGameSettingsVisibility();
+            });
+            // On load, set correct settings visibility
+            this.updateGameSettingsVisibility();
+        }
+        // Save Round
         document.getElementById('saveRoundBtn').addEventListener('click', () => {
             this.saveRound();
         });
-
-        document.getElementById('nextRoundBtn').addEventListener('click', () => {
-            this.nextRound();
-        });
-
-        document.getElementById('viewStatsBtn').addEventListener('click', () => {
-            this.cameFromSave = false; // Reset the flag
-            this.showStats();
-        });
-
-        document.getElementById('newGameBtn').addEventListener('click', async () => {
-            const confirmed = await this.showConfirm(
-                'Start New Game', 
-                'Are you sure you want to start a new game? Current game progress will be lost.'
-            );
-            if (confirmed) {
-                this.newGame();
-            }
-        });
-
-        // Stats screen
-        document.getElementById('backToGameBtn').addEventListener('click', () => {
-            this.showScreen('gameScreen');
-        });
-
-        document.getElementById('nextRoundFromStatsBtn').addEventListener('click', () => {
-            this.cameFromSave = false; // Reset the flag
-            this.nextRound();
-        });
-
-        // Alert and Confirm modal events
-        document.getElementById('alertOkBtn').addEventListener('click', () => {
-            document.getElementById('alertModal').classList.remove('active');
-        });
-
-        // Modal events
-        document.getElementById('closeModalBtn').addEventListener('click', () => {
-            this.hideAddPlayerModal();
-        });
-
-        document.getElementById('confirmAddPlayerBtn').addEventListener('click', () => {
-            this.confirmAddPlayer();
-        });
-
-        // Winner modal
-        document.getElementById('newGameFromWinnerBtn').addEventListener('click', () => {
-            document.getElementById('winnerModal').classList.remove('active');
-            this.newGame();
-        });
-
-        document.getElementById('viewStatsFromWinnerBtn').addEventListener('click', () => {
-            document.getElementById('winnerModal').classList.remove('active');
-            this.showStats();
-        });
-
-        // Score Entry Modal events
-    document.getElementById('closeScoreEntryBtn').addEventListener('click', () => this.hideScoreEntryModal());
-    document.getElementById('scoreEntryNextBtn').addEventListener('click', () => this.handleScoreEntryNext());
-    document.getElementById('scoreEntryOkBtn').addEventListener('click', () => this.confirmScoreEntry());
-
-        // Close modals when clicking outside
-        document.querySelectorAll('.modal').forEach(modal => {
-            modal.addEventListener('click', (e) => {
-                if (e.target === modal) {
-                    modal.classList.remove('active');
-                }
-            });
-        });
-
-        // Keyboard shortcuts
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') {
-                document.querySelectorAll('.modal.active').forEach(modal => {
-                    modal.classList.remove('active');
-                });
-            }
-        });
     }
+
+    updateGameSettingsVisibility() {
+        const nertzSettings = document.getElementById('nertzSettings');
+        const phase10Settings = document.getElementById('phase10Settings');
+        const gameType = document.getElementById('gameType').value;
+        if (gameType === 'nertz') {
+            nertzSettings.style.display = '';
+            phase10Settings.style.display = 'none';
+        } else if (gameType === 'phase10') {
+            nertzSettings.style.display = 'none';
+            phase10Settings.style.display = '';
+            // You can add Phase 10-specific settings here in the future
+        }
+    }
+
 
     updateWinningScoreDisplay() {
         document.getElementById('displayWinningScore').textContent = this.gameState.winningScore;
     }
 
-    // Custom Alert and Confirm functions
     showAlert(title, message) {
         document.getElementById('alertTitle').textContent = title;
         document.getElementById('alertMessage').textContent = message;
@@ -814,24 +736,20 @@ class NertzScoreTracker {
         return new Promise((resolve) => {
             document.getElementById('confirmTitle').textContent = title;
             document.getElementById('confirmMessage').textContent = message;
-            
             const modal = document.getElementById('confirmModal');
             modal.classList.add('active');
-            
             const handleConfirm = () => {
                 modal.classList.remove('active');
                 document.getElementById('confirmOkBtn').removeEventListener('click', handleConfirm);
                 document.getElementById('confirmCancelBtn').removeEventListener('click', handleCancel);
                 resolve(true);
             };
-            
             const handleCancel = () => {
                 modal.classList.remove('active');
                 document.getElementById('confirmOkBtn').removeEventListener('click', handleConfirm);
                 document.getElementById('confirmCancelBtn').removeEventListener('click', handleCancel);
                 resolve(false);
             };
-            
             document.getElementById('confirmOkBtn').addEventListener('click', handleConfirm);
             document.getElementById('confirmCancelBtn').addEventListener('click', handleCancel);
         });
@@ -846,8 +764,12 @@ class NertzScoreTracker {
         this.showScreen('gameSetup');
         this.updateStartGameButton();
         this.renderPlayersList(); // Re-render the empty players list
+    // Reset round display in case user returns to game screen
+    const roundEl = document.getElementById('currentRound');
+    if (roundEl) roundEl.textContent = '1';
     }
 }
 
 // Initialize the app
-const app = new NertzScoreTracker(); 
+const app = new GameScoreTracker();
+app.setupEventListeners();

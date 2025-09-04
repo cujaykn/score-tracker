@@ -22,9 +22,21 @@
                 <div class="setup-container">
                     <h2>Start New Game</h2>
                     
-                    <div class="winning-score-section">
-                        <label for="winningScore">Playing to:</label>
-                        <input type="number" id="winningScore" value="100" min="50" max="500" step="10">
+
+                    <div class="form-group">
+                        <label for="gameType">Game:</label>
+                        <select id="gameType" class="form-control">
+                            <option value="nertz" selected>Nertz</option>
+                            <option value="phase10">Phase 10</option>
+                        </select>
+                    </div>
+
+                    <div class="game-settings-section">
+                        <div class="winning-score-section" id="nertzSettings">
+                            <label for="winningScore">Playing to:</label>
+                            <input type="number" id="winningScore" value="100" min="50" max="500" step="10">
+                        </div>
+                        <div id="phase10Settings" style="display:none;"></div>
                     </div>
 
                     <div class="players-section">

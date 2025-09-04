@@ -1,3 +1,46 @@
+.phase10-row label {
+    margin-right: 1.2rem;
+    margin-left: 1.2rem;
+    min-width: 120px;
+    justify-content: center;
+    display: flex;
+    align-items: center;
+}
+.phase10-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    margin: 0.5rem 0 0.5rem 0;
+    font-size: 1.1rem;
+}
+.leaderboard-card {
+    background: linear-gradient(135deg, #7f53ac 0%, #647dee 100%);
+    color: #fff;
+    border-radius: 18px;
+    padding: 1.2rem 1.5rem;
+    margin: 0.7rem 0;
+    display: flex;
+    align-items: center;
+    gap: 1.2rem;
+    box-shadow: 0 2px 12px rgba(100, 125, 222, 0.12);
+    font-size: 1.25rem;
+}
+.leaderboard-icon {
+    font-size: 2.2rem;
+    margin-right: 0.7rem;
+}
+.leaderboard-name {
+    flex: 1;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+}
+.leaderboard-score {
+    font-size: 1.5rem;
+    font-weight: 700;
+    min-width: 2.5rem;
+    text-align: right;
+}
 /* Score Entry Keypad */
 #scoreEntryKeypad button {
     font-size: 1.3rem;
@@ -564,6 +607,32 @@ body {
     box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
 }
 
+/* Game Type Dropdown */
+#gameType.form-control {
+    width: 100%;
+    padding: 1rem;
+    border: 2px solid #e2e8f0;
+    border-radius: 12px;
+    font-size: 1.1rem;
+    background: #f7fafc;
+    color: #4a5568;
+    font-weight: 500;
+    transition: border-color 0.3s ease;
+    margin-bottom: 0.5rem;
+    appearance: none;
+    box-shadow: none;
+}
+#gameType.form-control:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+/* Game Settings Section (for per-game options) */
+.game-settings-section {
+    margin-bottom: 2rem;
+}
+
 /* Icon Grid */
 .icon-grid {
     display: grid;
@@ -739,17 +808,17 @@ body {
     }
     
     .score-input {
-        width: 100%;
+        width: 110px;
+        font-size: 1.3rem;
+        padding: 0.4rem 0.7rem;
+        margin-left: 1rem;
+        border-radius: 6px;
+        border: 1px solid #bbb;
+        text-align: right;
+        transition: border-color 0.2s;
     }
-    
-    .cumulative-score {
-        margin-left: 0;
-        margin-top: 0.5rem;
-    }
-    
-    .round-actions {
-        flex-direction: column;
-    }
+       /* flex-direction: column;
+    }*/
     
     .game-actions {
         flex-direction: column;
@@ -992,4 +1061,4 @@ body {
 @keyframes spin {
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
-} 
+}
