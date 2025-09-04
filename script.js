@@ -79,7 +79,7 @@ class Phase10Logic extends GameLogic {
     }
     getRoundInputFields(player) {
         return [
-            { type: 'checkbox', label: `Completed Phase ${player.phase}` },
+            { type: 'checkbox', label: `Phase ${player.phase}` },
             { type: 'score', label: 'Score', min: 0, max: 500 }
         ];
     }
@@ -194,6 +194,11 @@ class GameScoreTracker {
                         this._scoreEntryMin = field.min;
                         this._scoreEntryMax = field.max;
                         document.getElementById('scoreEntryDisplay').textContent = input.value || '0';
+                        // Set dynamic title with player name and icon
+                        const modalTitle = document.querySelector('#scoreEntryModal .modal-header h3');
+                        if (modalTitle) {
+                            modalTitle.innerHTML = `<span class='player-icon'><i class='${player.icon}'></i></span> ${player.name}`;
+                        }
                         document.getElementById('scoreEntryModal').classList.add('active');
                         this.renderScoreKeypad();
                     });
@@ -452,6 +457,16 @@ class GameScoreTracker {
         }
     }
     constructor() {
+        // Patch closeScoreEntryBtn to restore static title
+        setTimeout(() => {
+            const closeBtn = document.getElementById('closeScoreEntryBtn');
+            if (closeBtn) {
+                closeBtn.addEventListener('click', () => {
+                    const modalTitle = document.querySelector('#scoreEntryModal .modal-header h3');
+                    if (modalTitle) modalTitle.textContent = 'Enter Score';
+                });
+            }
+        }, 0);
         // Load recentPlayers from localStorage if available
         let recentPlayers = [];
         try {
