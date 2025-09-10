@@ -1,3 +1,19 @@
+.stats-newgame-btn-wrapper {
+    display: flex;
+    justify-content: center;
+    margin: 2.5rem 0 0 0;
+    width: 100%;
+}
+#newGameFromStatsBtn {
+    max-width: 320px;
+    width: 100%;
+}
+.leaderboard-card.winner {
+    background: linear-gradient(135deg, #ffb347 0%, #ffcc33 100%) !important;
+    color: #222 !important;
+    border: 2.5px solid #ff9800;
+    box-shadow: 0 0 10px 2px #ffecb3;
+}
 .phase10-row label {
     margin-right: 1.2rem;
     margin-left: 1.2rem;
@@ -18,13 +34,40 @@
     background: linear-gradient(135deg, #7f53ac 0%, #647dee 100%);
     color: #fff;
     border-radius: 18px;
-    padding: 1.2rem 1.5rem;
-    margin: 0.7rem 0;
+    padding: 0.4rem 1rem;
+    margin: 0.35rem 0;
     display: flex;
     align-items: center;
     gap: 1.2rem;
-    box-shadow: 0 2px 12px rgba(100, 125, 222, 0.12);
-    font-size: 1.25rem;
+}
+
+@media (max-width: 480px) {
+    .cumulative-scores-grid {
+        grid-template-columns: 1fr !important;
+    }
+    /* Keep leaderboard-card horizontal layout on mobile */
+    .leaderboard-card {
+        flex-direction: row;
+        align-items: center;
+        gap: 1.2rem;
+        font-size: 1.05rem;
+        padding: 0.25rem 0.6rem;
+        margin: 0.15rem 0;
+    }
+    .leaderboard-icon {
+        font-size: 2rem;
+        margin-right: 0.7rem;
+        margin-bottom: 0;
+    }
+    .leaderboard-name {
+        font-size: 1rem;
+        margin-bottom: 0;
+    }
+    .leaderboard-score {
+        font-size: 1.2rem;
+        min-width: 2.5rem;
+        text-align: right;
+    }
 }
 .leaderboard-icon {
     font-size: 2.2rem;
@@ -40,7 +83,7 @@
     font-weight: 700;
     min-width: 2.5rem;
     text-align: right;
-}
+    }
 /* Score Entry Keypad */
 #scoreEntryKeypad button {
     font-size: 1.3rem;
@@ -212,6 +255,15 @@ body {
     flex: 1;
     font-weight: 600;
     color: #4a5568;
+}
+
+/* Only truncate in score entry rows, not in player selection */
+.score-player-info .player-name {
+    min-width: 4ch;
+    max-width: 10ch;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .remove-player {
@@ -686,11 +738,6 @@ body {
     gap: 0.5rem;
 }
 
-.recent-player:hover {
-    border-color: #667eea;
-    background: #edf2f7;
-}
-
 .recent-player.already-added {
     opacity: 0.6;
     cursor: not-allowed;
@@ -805,6 +852,10 @@ body {
     .score-player-info {
         margin-right: 0;
         margin-bottom: 0.5rem;
+    }
+    .score-player-info .player-name {
+        min-width: 5ch;
+        max-width: 12ch;
     }
     
     .score-input {

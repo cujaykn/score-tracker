@@ -152,6 +152,23 @@ class Phase10Logic extends GameLogic {
 }
 // Game State Management
 class GameScoreTracker {
+    // Call this after DOMContentLoaded or in constructor
+    setupWinnerModalButtons() {
+        const newGameBtn = document.getElementById('newGameFromWinnerBtn');
+        if (newGameBtn) {
+            newGameBtn.onclick = () => {
+                document.getElementById('winnerModal').classList.remove('active');
+                this.newGame();
+            };
+        }
+        const viewStatsBtn = document.getElementById('viewStatsFromWinnerBtn');
+        if (viewStatsBtn) {
+            viewStatsBtn.onclick = () => {
+                document.getElementById('winnerModal').classList.remove('active');
+                this.showStatsScreenAfterRound();
+            };
+        }
+    }
     renderScoreInputs() {
         const container = document.getElementById('scoresContainer');
         if (!container) return;
@@ -209,7 +226,6 @@ class GameScoreTracker {
         });
     }
     saveRound() {
-        // Only Nertz for now
         const logic = this.gameLogics?.[this.gameState.selectedGame] || this.gameLogics?.nertz;
         const roundData = [];
         let allFilled = true;
@@ -237,8 +253,42 @@ class GameScoreTracker {
         this.gameState.rounds.push({ roundNumber: this.gameState.currentRound, data: roundData });
         this.gameState.currentRound += 1;
         this.saveToStorage();
+
+        // Winner detection logic
+        const winner = logic.getWinner(this.gameState.players, this.gameState);
+        if (winner) {
+            this.gameState.isActive = false;
+            this.saveToStorage();
+            this.showWinnerModal(winner);
+            return;
+        }
+
         // Show stats/leaderboard after saving round
         this.showStatsScreenAfterRound();
+    }
+    showWinnerModal(winner) {
+        const modal = document.getElementById('winnerModal');
+        const display = document.getElementById('winnerDisplay');
+        if (modal && display) {
+            let phasePart = '';
+            if (this.gameState.selectedGame !== 'phase10' && winner.phase) {
+                phasePart = `, Phase: ${winner.phase}`;
+            }
+            display.innerHTML = `
+                <div class="winner-icon"><i class="${winner.icon}"></i></div>
+                <div class="winner-name">${winner.name}</div>
+                <div class="winner-score">Score: ${winner.totalScore}${phasePart}</div>
+            `;
+            modal.classList.add('active');
+        }
+        // Add close handler if not already present
+        const closeBtn = document.getElementById('closeWinnerModalBtn');
+        if (closeBtn) {
+            closeBtn.onclick = () => {
+                modal.classList.remove('active');
+                this.showStatsScreenAfterRound();
+            };
+        }
     }
 
     showStatsScreenAfterRound() {
@@ -257,6 +307,18 @@ class GameScoreTracker {
         }
         const backBtn = document.getElementById('backToGameBtn');
         if (backBtn) backBtn.style.display = 'none';
+        // Show New Game button if game is over
+        const newGameStatsBtn = document.getElementById('newGameFromStatsBtn');
+        if (newGameStatsBtn) {
+            if (!this.gameState.isActive) {
+                newGameStatsBtn.style.display = '';
+                newGameStatsBtn.onclick = () => {
+                    this.newGame();
+                };
+            } else {
+                newGameStatsBtn.style.display = 'none';
+            }
+        }
         // Render leaderboard
         this.renderLeaderboard();
     }
@@ -275,13 +337,23 @@ class GameScoreTracker {
             // Nertz: highest totalScore first
             sorted = [...this.gameState.players].sort((a, b) => b.totalScore - a.totalScore);
         }
+        // Find winner if game is over
+        let winner = null;
+        if (!this.gameState.isActive) {
+            const logic = this.gameLogics?.[this.gameState.selectedGame] || this.gameLogics?.nertz;
+            winner = logic.getWinner(this.gameState.players, this.gameState);
+        }
         container.innerHTML = '';
         sorted.forEach(player => {
             const card = document.createElement('div');
-            card.className = 'leaderboard-card';
+            card.className = 'leaderboard-card' + (winner && winner.id === player.id ? ' winner' : '');
             let phaseLine = '';
             if (this.gameState.selectedGame === 'phase10') {
-                phaseLine = `<div class="leaderboard-phase" style="font-size:0.95rem;font-weight:400;opacity:0.85;line-height:1.1;">Phase ${player.phase || 1}</div>`;
+                    if (player.phase === 11) {
+                        phaseLine = `<div class="leaderboard-phase" style="font-size:0.95rem;font-weight:400;opacity:0.85;line-height:1.1;">Completed All Phases</div>`;
+                    } else {
+                        phaseLine = `<div class="leaderboard-phase" style="font-size:0.95rem;font-weight:400;opacity:0.85;line-height:1.1;">Phase ${player.phase || 1}</div>`;
+                    }
             }
             card.innerHTML = `
                 <div class="leaderboard-icon"><i class="${player.icon}"></i></div>
@@ -466,6 +538,7 @@ class GameScoreTracker {
                     if (modalTitle) modalTitle.textContent = 'Enter Score';
                 });
             }
+            this.setupWinnerModalButtons();
         }, 0);
         // Load recentPlayers from localStorage if available
         let recentPlayers = [];
